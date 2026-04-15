@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FDC Mail Search</title>
+<script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.7.1/lib/msal-browser.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #ffffff; --bg2: #f7f7f5; --bg3: #f0efe9;
+    --text: #1a1a1a; --text2: #555; --text3: #999;
+    --border: rgba(0,0,0,0.1); --border2: rgba(0,0,0,0.18);
+    --blue: #185FA5; --blue-bg: #E6F1FB; --blue-text: #0C447C;
+    --green-bg: #EAF3DE; --green-text: #27500A;
+    --red-bg: #FCEBEB; --red-text: #A32D2D;
+    --amber-bg: #FAEEDA; --amber-text: #633806;
+    --radius: 8px; --radius-lg: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1e1e1c; --bg2: #2a2a28; --bg3: #333330;
+      --text: #f0efe9; --text2: #aaa; --text3: #666;
+      --border: rgba(255,255,255,0.1); --border2: rgba(255,255,255,0.2);
+      --blue: #85B7EB; --blue-bg: #042C53; --blue-text: #B5D4F4;
+      --green-bg: #173404; --green-text: #C0DD97;
+      --red-bg: #501313; --red-text: #F7C1C1;
+      --amber-bg: #412402; --amber-text: #FAC775;
+    }
+  }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg3); color: var(--text); min-height: 100vh; }
+  .container { max-width: 860px; margin: 0 auto; padding: 2rem 1rem; }
+  .header { margin-bottom: 2rem; }
+  .header h1 { font-size: 20px; font-weight: 500; color: var(--text); }
+  .header p { font-size: 13px; color: var(--text2); margin-top: 4px; }
+  .card { background: var(--bg); border: 0.5px solid var(--border); border-radius: var(--radius-lg); padding: 1.25rem; margin-bottom: 1rem; }
+  .section-label { font-size: 11px; font-weight: 500; color: var(--text3); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 12px; }
+  .field { margin-bottom: 12px; }
+  .field label { display: block; font-size: 13px; color: var(--text2); margin-bottom: 4px; }
+  input[type=text], select {
+    width: 100%; padding: 8px 12px; border: 0.5px solid var(--border2);
+    border-radius: var(--radius); background: var(--bg2); color: var(--text);
+    font-size: 14px; font-family: inherit; outline: none;
+  }
+  input[type=text]:focus, select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(24,95,165,0.12); }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 9px 18px; border-radius: var(--radius);
+    border: 0.5px solid var(--border2); background: transparent;
+    font-size: 14px; font-family: inherit; cursor: pointer; color: var(--text);
+    transition: background 0.15s;
+  }
+  .btn:hover { background: var(--bg2); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-primary { background: var(--text); color: var(--bg); border-color: var(--text); }
+  .btn-primary:hover { opacity: 0.85; background: var(--text); }
+  .btn-sm { padding: 6px 14px; font-size: 13px; }
+  .status { padding: 9px 13px; border-radius: var(--radius); font-size: 13px; margin-top: 10px; line-height: 1.5; }
+  .status.success { background: var(--green-bg); color: var(--green-text); }
+  .status.error { background: var(--red-bg); color: var(--red-text); }
+  .status.info { background: var(--blue-bg); color: var(--blue-text); }
+  .status.warning { background: var(--amber-bg); color: var(--amber-text); }
+  .spinner { width: 14px; height: 14px; border: 2px solid var(--border2); border-top-color: currentColor; border-radius: 50%; animation: spin 0.7s linear infinite; display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .hidden { display: none !important; }
+  .user-badge { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; background: var(--green-bg); color: var(--green-text); border-radius: var(--radius); font-size: 13px; font-weight: 500; }
+  .results-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+  .result-count { font-size: 12px; color: var(--text3); }
+  .mail-item { border-bottom: 0.5px solid var(--border); padding: 14px 0; }
+  .mail-item:last-child { border-bottom: none; }
+  .mail-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .mail-subject { font-size: 14px; font-weight: 500; color: var(--text); margin-bottom: 3px; }
+  .mail-from { font-size: 13px; color: var(--text2); margin-bottom: 4px; }
+  .mail-preview { font-size: 13px; color: var(--text3); line-height: 1.5; }
+  .mail-date { font-size: 12px; color: var(--text3); white-space: nowrap; flex-shrink: 0; text-align: right; }
+  .mail-link { font-size: 12px; color: var(--blue); display: block; margin-top: 4px; text-decoration: none; }
+  .mail-link:hover { text-decoration: underline; }
+  .ai-box { background: var(--bg2); border-left: 3px solid var(--blue); border-radius: 0 var(--radius) var(--radius) 0; padding: 14px; margin-bottom: 16px; }
+  .ai-label { font-size: 11px; font-weight: 500; color: var(--blue); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+  .ai-text { font-size: 14px; line-height: 1.7; color: var(--text); white-space: pre-wrap; }
+  .load-more { text-align: center; padding-top: 14px; }
+  .row { display: flex; gap: 10px; align-items: flex-end; }
+  .row .field { flex: 1; margin-bottom: 0; }
+  .folder-tag { display: inline-block; background: var(--bg3); border: 0.5px solid var(--border); border-radius: 4px; padding: 2px 7px; font-size: 11px; color: var(--text3); margin-top: 4px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <h1>FDC Mail Search</h1>
+    <p>Căutare inteligentă în toate mailurile Outlook 365</p>
+  </div>
+
+  <!-- SETUP -->
+  <div class="card" id="setup-card">
+    <div class="section-label">Configurare</div>
+    <div class="grid-2">
+      <div class="field">
+        <label>Client ID</label>
+        <input type="text" id="clientId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autocomplete="off" />
+      </div>
+      <div class="field">
+        <label>Tenant ID</label>
+        <input type="text" id="tenantId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autocomplete="off" />
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+      <button class="btn btn-primary" id="login-btn" onclick="doLogin()">
+        <span id="login-spinner" class="spinner hidden"></span>
+        Autentificare Microsoft 365
+      </button>
+      <div id="user-badge" class="user-badge hidden"></div>
+      <button class="btn btn-sm hidden" id="logout-btn" onclick="doLogout()">Deconectare</button>
+    </div>
+    <div id="auth-status"></div>
+  </div>
+
+  <!-- SEARCH -->
+  <div class="card hidden" id="search-card">
+    <div class="section-label">Căutare</div>
+    <div class="field">
+      <label>Cuvinte cheie</label>
+      <input type="text" id="searchQuery" placeholder="ex: Liebherr contract, Porsche livrare, factura TVA..." />
+    </div>
+    <div class="grid-2">
+      <div class="field">
+        <label>Expeditor (opțional)</label>
+        <input type="text" id="filterFrom" placeholder="ex: ion.pop@firma.ro" />
+      </div>
+      <div class="field">
+        <label>Interval de date</label>
+        <select id="filterDate">
+          <option value="">Toate mailurile</option>
+          <option value="7">Ultima săptămână</option>
+          <option value="30">Ultima lună</option>
+          <option value="90">Ultimele 3 luni</option>
+          <option value="365">Ultimul an</option>
+          <option value="730">Ultimii 2 ani</option>
+        </select>
+      </div>
+    </div>
+    <div class="row" style="margin-bottom:10px;">
+      <div class="field">
+        <label>Întreabă AI despre rezultate (opțional)</label>
+        <input type="text" id="aiPrompt" placeholder="ex: Care mail confirmă livrarea la final de 2025?" />
+      </div>
+      <button class="btn btn-primary" id="search-btn" onclick="doSearch()">
+        <span id="search-spinner" class="spinner hidden"></span>
+        Caută
+      </button>
+    </div>
+    <div id="search-status"></div>
+  </div>
+
+  <!-- RESULTS -->
+  <div class="card hidden" id="results-card">
+    <div class="results-header">
+      <div class="section-label" style="margin-bottom:0;">Rezultate</div>
+      <div class="result-count" id="result-count"></div>
+    </div>
+    <div id="ai-box" class="ai-box hidden">
+      <div class="ai-label">Analiză Claude AI</div>
+      <div class="ai-text" id="ai-text"></div>
+    </div>
+    <div id="mails-list"></div>
+    <div class="load-more hidden" id="load-more">
+      <button class="btn btn-sm" onclick="renderMore()">Încarcă mai multe</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+let msalInstance = null;
+let account = null;
+let accessToken = null;
+let allMails = [];
+let currentPage = 0;
+const PAGE = 10;
+
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function showStatus(id, msg, type) {
+  const el = document.getElementById(id);
+  el.innerHTML = msg ? `<div class="status ${type}">${msg}</div>` : '';
+}
+
+async function initMsal(clientId, tenantId) {
+  const cfg = {
+    auth: {
+      clientId,
+      authority: `https://login.microsoftonline.com/${tenantId}`,
+      redirectUri: window.location.href.split('?')[0].split('#')[0]
+    },
+    cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: true }
+  };
+  msalInstance = new msal.PublicClientApplication(cfg);
+  await msalInstance.initialize();
+  return msalInstance;
+}
+
+async function doLogin() {
+  const clientId = document.getElementById('clientId').value.trim();
+  const tenantId = document.getElementById('tenantId').value.trim();
+  if (!clientId || !tenantId) { showStatus('auth-status','Completează Client ID și Tenant ID.','error'); return; }
+  localStorage.setItem('fdc_client_id', clientId);
+  localStorage.setItem('fdc_tenant_id', tenantId);
+  document.getElementById('login-spinner').classList.remove('hidden');
+  document.getElementById('login-btn').disabled = true;
+  try {
+    await initMsal(clientId, tenantId);
+    await msalInstance.loginRedirect({ scopes: ['Mail.Read','User.Read'] });
+  } catch(e) {
+    showStatus('auth-status', 'Eroare: ' + e.message, 'error');
+    document.getElementById('login-spinner').classList.add('hidden');
+    document.getElementById('login-btn').disabled = false;
+  }
+}
+
+async function handleRedirect() {
+  const clientId = localStorage.getItem('fdc_client_id');
+  const tenantId = localStorage.getItem('fdc_tenant_id');
+  if (!clientId || !tenantId) return;
+  document.getElementById('clientId').value = clientId;
+  document.getElementById('tenantId').value = tenantId;
+  try {
+    await initMsal(clientId, tenantId);
+    const resp = await msalInstance.handleRedirectPromise();
+    if (resp) account = resp.account;
+    else {
+      const accounts = msalInstance.getAllAccounts();
+      if (accounts.length > 0) account = accounts[0];
+    }
+    if (account) {
+      const tr = await msalInstance.acquireTokenSilent({ scopes:['Mail.Read'], account });
+      accessToken = tr.accessToken;
+      setLoggedIn(account.username);
+    }
+  } catch(e) {
+    showStatus('auth-status', 'Eroare autentificare: ' + e.message, 'error');
+  }
+}
+
+function setLoggedIn(username) {
+  document.getElementById('user-badge').textContent = username;
+  document.getElementById('user-badge').classList.remove('hidden');
+  document.getElementById('logout-btn').classList.remove('hidden');
+  document.getElementById('login-btn').classList.add('hidden');
+  document.getElementById('search-card').classList.remove('hidden');
+  showStatus('auth-status', '', '');
+}
+
+function doLogout() {
+  localStorage.removeItem('fdc_client_id');
+  localStorage.removeItem('fdc_tenant_id');
+  if (msalInstance) msalInstance.logoutRedirect();
+}
+
+async function doSearch() {
+  const q = document.getElementById('searchQuery').value.trim();
+  const from = document.getElementById('filterFrom').value.trim();
+  const days = document.getElementById('filterDate').value;
+  const aiQ = document.getElementById('aiPrompt').value.trim();
+  if (!q && !from) { showStatus('search-status','Introdu cel puțin un cuvânt cheie.','error'); return; }
+
+  document.getElementById('search-spinner').classList.remove('hidden');
+  document.getElementById('search-btn').disabled = true;
+  showStatus('search-status','Se caută în toate folderele...','info');
+
+  try {
+    let filters = [];
+    if (q) {
+      const words = q.split(/\s+/).filter(Boolean);
+      const sf = words.map(w=>`contains(subject,'${w.replace(/'/g,"''")}') or contains(body/content,'${w.replace(/'/g,"''")}')` ).join(' or ');
+      filters.push(`(${sf})`);
+    }
+    if (from) {
+      filters.push(`(contains(from/emailAddress/address,'${from.replace(/'/g,"''")}') or contains(from/emailAddress/name,'${from.replace(/'/g,"''")}'))`);
+    }
+    if (days) {
+      const d = new Date(); d.setDate(d.getDate()-parseInt(days));
+      filters.push(`receivedDateTime ge ${d.toISOString()}`);
+    }
+    const sel = 'id,subject,from,receivedDateTime,bodyPreview,webLink';
+    let url = `https://graph.microsoft.com/v1.0/me/messages?$top=100&$select=${sel}&$orderby=receivedDateTime desc`;
+    if (filters.length) url += '&$filter=' + encodeURIComponent(filters.join(' and '));
+
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!r.ok) { const e = await r.json(); throw new Error(e.error?.message||'Graph API error'); }
+    const data = await r.json();
+    allMails = data.value || [];
+    currentPage = 0;
+
+    showStatus('search-status','','');
+    document.getElementById('results-card').classList.remove('hidden');
+    document.getElementById('result-count').textContent = `${allMails.length} mailuri găsite`;
+    document.getElementById('mails-list').innerHTML = '';
+    document.getElementById('ai-box').classList.add('hidden');
+    renderMore();
+
+    if (aiQ && allMails.length > 0) {
+      document.getElementById('ai-box').classList.remove('hidden');
+      document.getElementById('ai-text').textContent = 'Se analizează...';
+      await askClaude(aiQ, allMails.slice(0, 25));
+    }
+  } catch(e) {
+    showStatus('search-status','Eroare: '+e.message,'error');
+  } finally {
+    document.getElementById('search-spinner').classList.add('hidden');
+    document.getElementById('search-btn').disabled = false;
+  }
+}
+
+function renderMore() {
+  const start = currentPage * PAGE;
+  const chunk = allMails.slice(start, start + PAGE);
+  const container = document.getElementById('mails-list');
+  chunk.forEach(m => {
+    const date = new Date(m.receivedDateTime);
+    const ds = date.toLocaleDateString('ro-RO',{day:'2-digit',month:'short',year:'numeric'}) + ' ' + date.toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'});
+    const name = m.from?.emailAddress?.name || '';
+    const addr = m.from?.emailAddress?.address || '';
+    const div = document.createElement('div');
+    div.className = 'mail-item';
+    div.innerHTML = `
+      <div class="mail-row">
+        <div style="flex:1;min-width:0;">
+          <div class="mail-subject">${esc(m.subject||'(fără subiect)')}</div>
+          <div class="mail-from">${esc(name)}${addr?' &lt;'+esc(addr)+'&gt;':''}</div>
+          <div class="mail-preview">${esc((m.bodyPreview||'').substring(0,200))}${m.bodyPreview?.length>200?'…':''}</div>
+          ${m.webLink?`<a href="${esc(m.webLink)}" class="mail-link" target="_blank">Deschide în Outlook →</a>`:''}
+        </div>
+        <div class="mail-date">${ds}</div>
+      </div>`;
+    container.appendChild(div);
+  });
+  currentPage++;
+  const lm = document.getElementById('load-more');
+  lm.classList.toggle('hidden', currentPage * PAGE >= allMails.length);
+}
+
+async function askClaude(question, mails) {
+  const summary = mails.map((m,i)=>{
+    const d = new Date(m.receivedDateTime).toLocaleDateString('ro-RO');
+    return `[${i+1}] De la: ${m.from?.emailAddress?.name||''} <${m.from?.emailAddress?.address||''}> | Data: ${d} | Subiect: ${m.subject||''} | Preview: ${(m.bodyPreview||'').substring(0,250)}`;
+  }).join('\n\n');
+  const prompt = `Ești un asistent de business în română. Analizează aceste ${mails.length} emailuri și răspunde la întrebarea utilizatorului.\n\nEMAILURI:\n${summary}\n\nÎNTREBAREA: ${question}\n\nRăspunde concis și direct, referindu-te la numărul emailului când e relevant.`;
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:1000, messages:[{role:'user',content:prompt}] })
+    });
+    const d = await r.json();
+    document.getElementById('ai-text').textContent = d.content?.map(b=>b.text||'').join('')||'Fără răspuns.';
+  } catch(e) {
+    document.getElementById('ai-text').textContent = 'Eroare AI: '+e.message;
+  }
+}
+
+document.getElementById('searchQuery').addEventListener('keydown', e=>{ if(e.key==='Enter') doSearch(); });
+document.getElementById('aiPrompt').addEventListener('keydown', e=>{ if(e.key==='Enter') doSearch(); });
+
+handleRedirect();
+</script>
+</body>
+</html>
