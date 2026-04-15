@@ -271,27 +271,33 @@ async function doSearch() {
   showStatus('search-status','Se caută în toate folderele...','info');
 
   try {
-    let filters = [];
+    const sel = 'id,subject,from,receivedDateTime,bodyPreview,webLink';
+    let url = `https://graph.microsoft.com/v1.0/me/messages?$top=100&$select=${sel}`;
+
     if (q) {
-      const words = q.split(/\s+/).filter(Boolean);
-      const sf = words.map(w=>`contains(subject,'${w.replace(/'/g,"''")}') or contains(body/content,'${w.replace(/'/g,"''")}')` ).join(' or ');
-      filters.push(`(${sf})`);
+      url += `&$search=${encodeURIComponent('"'+q+'"')}`;
+    } else {
+      url += `&$orderby=receivedDateTime desc`;
     }
+
+    let postFilters = [];
     if (from) {
-      filters.push(`(contains(from/emailAddress/address,'${from.replace(/'/g,"''")}') or contains(from/emailAddress/name,'${from.replace(/'/g,"''")}'))`);
+      const fromLower = from.toLowerCase();
+      postFilters.push(m => {
+        const addr = (m.from?.emailAddress?.address||'').toLowerCase();
+        const name = (m.from?.emailAddress?.name||'').toLowerCase();
+        return addr.includes(fromLower) || name.includes(fromLower);
+      });
     }
     if (days) {
-      const d = new Date(); d.setDate(d.getDate()-parseInt(days));
-      filters.push(`receivedDateTime ge ${d.toISOString()}`);
+      const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-parseInt(days));
+      postFilters.push(m => new Date(m.receivedDateTime) >= cutoff);
     }
-    const sel = 'id,subject,from,receivedDateTime,bodyPreview,webLink';
-    let url = `https://graph.microsoft.com/v1.0/me/messages?$top=100&$select=${sel}&$orderby=receivedDateTime desc`;
-    if (filters.length) url += '&$filter=' + encodeURIComponent(filters.join(' and '));
 
-    const r = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}`, ConsistencyLevel: 'eventual' } });
     if (!r.ok) { const e = await r.json(); throw new Error(e.error?.message||'Graph API error'); }
     const data = await r.json();
-    allMails = data.value || [];
+    allMails = (data.value || []).filter(m => postFilters.every(fn => fn(m)));
     currentPage = 0;
 
     showStatus('search-status','','');
