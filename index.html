@@ -348,23 +348,30 @@ function renderMore() {
   lm.classList.toggle('hidden', currentPage * PAGE >= allMails.length);
 }
 
-async function askClaude(question, mails) {
+function buildClaudePrompt(question, mails) {
   const summary = mails.map((m,i)=>{
     const d = new Date(m.receivedDateTime).toLocaleDateString('ro-RO');
-    return `[${i+1}] De la: ${m.from?.emailAddress?.name||''} <${m.from?.emailAddress?.address||''}> | Data: ${d} | Subiect: ${m.subject||''} | Preview: ${(m.bodyPreview||'').substring(0,250)}`;
+    return `[${i+1}] De la: ${m.from?.emailAddress?.name||''} <${m.from?.emailAddress?.address||''}> | Data: ${d} | Subiect: ${m.subject||''} | Preview: ${(m.bodyPreview||'').substring(0,300)}`;
   }).join('\n\n');
-  const prompt = `Ești un asistent de business în română. Analizează aceste ${mails.length} emailuri și răspunde la întrebarea utilizatorului.\n\nEMAILURI:\n${summary}\n\nÎNTREBAREA: ${question}\n\nRăspunde concis și direct, referindu-te la numărul emailului când e relevant.`;
-  try {
-    const r = await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:1000, messages:[{role:'user',content:prompt}] })
-    });
-    const d = await r.json();
-    document.getElementById('ai-text').textContent = d.content?.map(b=>b.text||'').join('')||'Fără răspuns.';
-  } catch(e) {
-    document.getElementById('ai-text').textContent = 'Eroare AI: '+e.message;
-  }
+  return `Am ${mails.length} emailuri din Outlook și vreau să analizezi:\n\n${summary}\n\nÎntrebarea mea: ${question||"Rezumă cele mai importante emailuri și identifică acțiunile necesare."}`;
+}
+
+function openInClaude() {
+  const question = document.getElementById('aiPrompt').value.trim();
+  const mails = allMails.slice(0,25);
+  if (!mails.length) return;
+  const prompt = buildClaudePrompt(question, mails);
+  const encoded = encodeURIComponent(prompt);
+  window.open(`https://claude.ai/new?q=${encoded}`, '_blank');
+}
+
+async function askClaude(question, mails) {
+  document.getElementById('ai-text').innerHTML = `
+    <div style="margin-bottom:10px;">Analiza AI nu poate rula direct în browser din motive de securitate (CORS).</div>
+    <button onclick="openInClaude()" style="display:inline-flex;align-items:center;gap:8px;padding:9px 18px;border-radius:8px;border:0.5px solid rgba(0,0,0,0.2);background:var(--text);color:var(--bg);font-size:14px;font-family:inherit;cursor:pointer;">
+      Deschide analiza în Claude.ai →
+    </button>
+    <div style="margin-top:8px;font-size:12px;color:var(--text3);">Se vor trimite primele ${mails.length} mailuri găsite împreună cu întrebarea ta.</div>`;
 }
 
 document.getElementById('searchQuery').addEventListener('keydown', e=>{ if(e.key==='Enter') doSearch(); });
